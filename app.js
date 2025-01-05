@@ -98,8 +98,15 @@ wss.on('connection', (ws, req) => {
 // 진행 상태 전송 함수
 function sendProgress(clientId, data) {
     const ws = clients.get(clientId);
-    if (ws) {
-        ws.send(JSON.stringify(data));
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        try {
+            console.log('Sending progress to client:', clientId, data); // 디버깅용 로그
+            ws.send(JSON.stringify(data));
+        } catch (error) {
+            console.error('Error sending progress:', error);
+        }
+    } else {
+        console.log('WebSocket not available for client:', clientId);
     }
 }
 

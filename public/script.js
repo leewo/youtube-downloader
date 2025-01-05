@@ -19,6 +19,8 @@ connectWebSocket();
 
 // 진행 상태 업데이트
 function updateProgress(data) {
+    console.log('Progress update received:', data); // 디버깅용 로그
+
     const progressContainer = document.getElementById('downloadProgress');
     const progressFill = document.getElementById('progressFill');
     const downloadType = document.getElementById('downloadType');
@@ -26,29 +28,47 @@ function updateProgress(data) {
     const downloadSpeed = document.getElementById('downloadSpeed');
     const downloadSize = document.getElementById('downloadSize');
 
+    // DOM 요소 존재 확인
+    if (!progressContainer || !progressFill || !downloadType ||
+        !downloadPercent || !downloadSpeed || !downloadSize) {
+        console.error('Progress DOM elements not found');
+        return;
+    }
+
+    // 진행 상태 컨테이너를 표시
     progressContainer.style.display = 'block';
 
     if (data.type === 'error') {
         downloadType.textContent = '오류 발생';
         downloadPercent.textContent = data.message;
+        console.error('Download error:', data.message);
         return;
     }
 
+    // 진행 상태 업데이트
+    const progress = Math.round(data.progress);
     downloadType.textContent = data.type === 'video' ? '비디오 다운로드 중...' : 'MP3 다운로드 중...';
-    downloadPercent.textContent = `${Math.round(data.progress)}%`;
-    progressFill.style.width = `${data.progress}%`;
+    downloadPercent.textContent = `${progress}%`;
+    progressFill.style.width = `${progress}%`;
 
+    // 속도와 크기 정보 업데이트
     if (data.speed) {
         downloadSpeed.textContent = `다운로드 속도: ${data.speed}`;
+        downloadSpeed.style.display = 'block';
     }
     if (data.size) {
         downloadSize.textContent = `파일 크기: ${data.size}`;
+        downloadSize.style.display = 'block';
     }
 
-    if (data.progress === 100) {
+    // 다운로드 완료 시 처리
+    if (progress === 100) {
+        downloadType.textContent = '다운로드 완료!';
         setTimeout(() => {
             progressContainer.style.display = 'none';
             progressFill.style.width = '0%';
+            downloadSpeed.style.display = 'none';
+            downloadSize.style.display = 'none';
         }, 2000);
     }
 }
