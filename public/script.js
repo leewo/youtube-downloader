@@ -124,7 +124,7 @@ function downloadVideo() {
     }
 
    // 다운로드 링크 생성 및 클릭
-   window.location.href = `/download?url=${encodeURIComponent(videoUrl)}&quality=${quality}&clientId=${clientId}`;
+    window.location.href = `/download?url=${encodeURIComponent(videoUrl)}&quality=${quality}&clientId=${clientId}`;
 }
 
 function downloadAudio() {
@@ -142,5 +142,5 @@ function downloadSubtitle() {
         alert('URL을 입력해주세요.');
         return;
     }
-    window.location.href = `/download-subtitle?url=${encodeURIComponent(videoUrl)}`;
+    window.location.href = `/download-subtitle?url=${encodeURIComponent(videoUrl)}&clientId=${clientId}`;
 }

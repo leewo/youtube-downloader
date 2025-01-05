@@ -1,0 +1,9 @@
+├──.gitignore
+├──app.js
+├──package.json
+├──package-lock.json
+├──public
+│   ├──script.js
+│   └──styles.css
+└──views
+    └──index.ejs
