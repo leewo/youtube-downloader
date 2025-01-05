@@ -36,10 +36,18 @@ async function getVideoInfo() {
         const qualitySelect = document.getElementById('qualitySelect');
         qualitySelect.innerHTML = '<option value="">화질 선택</option>';
 
-        data.formats.forEach(format => {
+        // 중복 제거 및 정렬
+        const uniqueQualities = [...new Set(data.formats
+            .filter(format => format.quality && format.quality.includes('p'))
+            .map(format => format.quality))]
+            .sort((a, b) => {
+                return parseInt(b.replace('p', '')) - parseInt(a.replace('p', ''));
+            });
+
+        uniqueQualities.forEach(quality => {
             const option = document.createElement('option');
-            option.value = format.formatId;
-            option.textContent = `${format.quality} (${format.container})`;
+            option.value = quality;
+            option.textContent = `${quality}`;
             qualitySelect.appendChild(option);
         });
 
