@@ -82,12 +82,16 @@ function formatDate(dateString) {
 // 웹소켓 연결 관리
 const clients = new Map();
 
-wss.on('connection', (ws) => {
-    const clientId = Date.now();
-    clients.set(clientId, ws);
+wss.on('connection', (ws, req) => {
+    const clientId = req.url.split('=')[1];  // URL에서 clientId 추출
+    if (clientId) {
+        clients.set(clientId, ws);
+        console.log(`Client connected with ID: ${clientId}`);
+    }
 
     ws.on('close', () => {
         clients.delete(clientId);
+        console.log(`Client disconnected: ${clientId}`);
     });
 });
 
@@ -143,7 +147,10 @@ app.get('/download', async (req, res) => {
 
         // 진행 상태 처리
         download.stdout.on('data', (data) => {
-            const progressMatch = data.toString().match(/(\d+\.\d+)% of ~?(\d+\.\d+)(\w+) at\s+(\d+\.\d+)(\w+)\/s/);
+            const output = data.toString();
+            console.log('Download progress:', output);  // 디버깅을 위한 로그
+
+            const progressMatch = output.match(/(\d+\.\d+)% of ~?(\d+\.\d+)(\w+) at\s+(\d+\.\d+)(\w+)\/s/);
             if (progressMatch) {
                 const [, percent, size, sizeUnit, speed, speedUnit] = progressMatch;
 

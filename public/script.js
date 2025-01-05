@@ -3,7 +3,7 @@ const clientId = Date.now();
 
 // 웹소켓 연결 설정
 function connectWebSocket() {
-    ws = new WebSocket(`ws://${window.location.host}`);
+    ws = new WebSocket(`ws://${window.location.host}?clientId=${clientId}`);
 
     ws.onmessage = (event) => {
         const data = JSON.parse(event.data);
