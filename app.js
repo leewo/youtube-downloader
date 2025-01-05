@@ -1,95 +1,89 @@
 'use strict';
 
 const express = require('express');
-const ytdl = require('ytdl-core');
+const youtubedl = require('youtube-dl-exec');
 const path = require('path');
+const fs = require('fs');
 
 const app = express();
 const port = 3000;
 
-// 미들웨어 설정
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static('public'));
-
-// View 엔진 설정
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 
-// 라우트 설정
 app.get('/', (req, res) => {
     res.render('index');
 });
 
-// 영상 정보 가져오기 - 에러 처리 강화
+// 영상 정보 가져오기
 app.post('/info', async (req, res) => {
     try {
         const { url } = req.body;
 
-        // URL 유효성 검사 추가
-        if (!ytdl.validateURL(url)) {
-            throw new Error('올바른 YouTube URL이 아닙니다.');
-        }
-
-        const info = await ytdl.getInfo(url, {
-            requestOptions: {
-                headers: {
-                    // User-Agent 추가
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-                }
-            }
+        const info = await youtubedl(url, {
+            dumpSingleJson: true,
+            noWarnings: true,
+            noCallHome: true,
+            preferFreeFormats: true,
+            youtubeSkipDashManifest: true
         });
 
-        // 필터링된 형식 정보만 전송
-        const formats = ytdl.filterFormats(info.formats, 'videoandaudio');
-
         res.json({
-            title: info.videoDetails.title,
-            thumbnail: info.videoDetails.thumbnails[0].url,
-            duration: info.videoDetails.lengthSeconds,
-            formats: formats.map(format => ({
-                itag: format.itag,
-                quality: format.qualityLabel,
-                container: format.container
-            }))
+            title: info.title,
+            thumbnail: info.thumbnail,
+            duration: info.duration,
+            formats: info.formats
+                .filter(format => format.ext === 'mp4' && format.format_note !== 'DASH video')
+                .map(format => ({
+                    formatId: format.format_id,
+                    quality: format.format_note,
+                    container: format.ext
+                }))
         });
     } catch (error) {
         console.error('Error in /info:', error);
         res.status(400).json({
-            error: error.message || '영상 정보를 가져오는데 실패했습니다.'
+            error: '영상 정보를 가져오는데 실패했습니다.'
         });
     }
 });
 
-// 다운로드 로직 수정
+// 다운로드 엔드포인트
 app.get('/download', async (req, res) => {
     try {
         const { url, quality } = req.query;
+        const downloadPath = path.join(__dirname, 'downloads');
 
-        if (!ytdl.validateURL(url)) {
-            throw new Error('올바른 YouTube URL이 아닙니다.');
+        // downloads 폴더가 없으면 생성
+        if (!fs.existsSync(downloadPath)) {
+            fs.mkdirSync(downloadPath);
         }
 
-        const info = await ytdl.getInfo(url);
-        const format = ytdl.chooseFormat(info.formats, {
-            quality: quality || 'highest',
-            filter: 'videoandaudio'
+        // 임시 파일명 생성
+        const tempFileName = `video-${Date.now()}.mp4`;
+        const outputPath = path.join(downloadPath, tempFileName);
+
+        // 영상 다운로드
+        await youtubedl(url, {
+            format: quality || 'best',
+            output: outputPath
         });
 
-        res.header('Content-Disposition', `attachment; filename="${info.videoDetails.title}.mp4"`);
-
-        ytdl(url, {
-            format: format,
-            requestOptions: {
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-                }
+        // 파일 전송
+        res.download(outputPath, (err) => {
+            // 전송 완료 후 임시 파일 삭제
+            if (fs.existsSync(outputPath)) {
+                fs.unlinkSync(outputPath);
             }
-        }).pipe(res);
+        });
+
     } catch (error) {
         console.error('Error in /download:', error);
         res.status(400).json({
-            error: error.message || '다운로드에 실패했습니다.'
+            error: '다운로드에 실패했습니다.'
         });
     }
 });

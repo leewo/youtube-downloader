@@ -38,7 +38,7 @@ async function getVideoInfo() {
 
         data.formats.forEach(format => {
             const option = document.createElement('option');
-            option.value = format.itag;
+            option.value = format.formatId;
             option.textContent = `${format.quality} (${format.container})`;
             qualitySelect.appendChild(option);
         });
