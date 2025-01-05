@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouTube 다운로더</title>
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1>YouTube 동영상 다운로더</h1>
+        
+        <div class="input-section">
+            <input type="text" id="videoUrl" placeholder="YouTube URL을 입력하세요">
+            <button onclick="getVideoInfo()">정보 가져오기</button>
+        </div>
+
+        <div id="videoInfo" class="video-info" style="display: none;">
+            <img id="thumbnail" src="" alt="썸네일">
+            <h2 id="videoTitle"></h2>
+            <p id="videoDuration"></p>
+            
+            <select id="qualitySelect">
+                <option value="">화질 선택</option>
+            </select>
+            
+            <button onclick="downloadVideo()">다운로드</button>
+        </div>
+
+        <div id="loading" style="display: none;">
+            처리 중...
+        </div>
+    </div>
+
+    <script src="/script.js"></script>
+</body>
+</html>

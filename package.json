@@ -1,0 +1,21 @@
+{
+  "name": "youtube_down",
+  "version": "0.0.0",
+  "description": "youtube_down",
+  "main": "app.js",
+  "author": "",
+  "devDependencies": {
+    "eslint": "^8.21.0"
+  },
+  "eslintConfig": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "license": "ISC",
+  "dependencies": {
+    "ejs": "^3.1.10",
+    "express": "^4.21.2",
+    "ytdl-core": "^4.11.5"
+  }
+}
