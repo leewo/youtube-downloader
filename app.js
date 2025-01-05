@@ -72,11 +72,26 @@ function sanitizeFilename(title) {
 }
 
 // 날짜를 YYYYMMDD 형식으로 변환하는 함수
-function formatDate(dateString) {
-    const date = new Date(dateString);
-    return date.getFullYear().toString() +
-        (date.getMonth() + 1).toString().padStart(2, '0') +
-        date.getDate().toString().padStart(2, '0');
+function formatDate(date) {
+    if (typeof date === 'string' && date.length === 8) {
+        // YYYYMMDD 형식의 문자열인 경우
+        const year = date.substring(0, 4);
+        const month = date.substring(4, 6);
+        const day = date.substring(6, 8);
+        return `${year}${month}${day}`;
+    }
+
+    const d = new Date(date);
+    if (isNaN(d.getTime())) {
+        const today = new Date();
+        return today.getFullYear().toString() +
+            String(today.getMonth() + 1).padStart(2, '0') +
+            String(today.getDate()).padStart(2, '0');
+    }
+
+    return d.getFullYear().toString() +
+        String(d.getMonth() + 1).padStart(2, '0') +
+        String(d.getDate()).padStart(2, '0');
 }
 
 // 웹소켓 연결 관리

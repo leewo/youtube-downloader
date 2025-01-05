@@ -135,6 +135,14 @@ async function getVideoInfo() {
             qualitySelect.appendChild(option);
         });
 
+        // 1080p가 있다면 자동 선택, 없다면 가장 높은 해상도 선택
+        const has1080p = uniqueQualities.includes('1080p');
+        if (has1080p) {
+            qualitySelect.value = '1080p';
+        } else if (uniqueQualities.length > 0) {
+            qualitySelect.value = uniqueQualities[0]; // 가장 높은 해상도
+        }
+
         videoInfo.style.display = 'block';
     } catch (error) {
         alert(error.message);
