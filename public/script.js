@@ -143,7 +143,21 @@ function downloadVideo() {
         return;
     }
 
-   // 다운로드 링크 생성 및 클릭
+    // 다운로드 시작 시 progress UI 초기화 및 표시
+    const progressContainer = document.getElementById('downloadProgress');
+    const progressFill = document.getElementById('progressFill');
+    const downloadType = document.getElementById('downloadType');
+    const downloadPercent = document.getElementById('downloadPercent');
+    const downloadSpeed = document.getElementById('downloadSpeed');
+    const downloadSize = document.getElementById('downloadSize');
+
+    progressContainer.style.display = 'block';
+    progressFill.style.width = '0%';
+    downloadType.textContent = '비디오 다운로드 준비 중...';
+    downloadPercent.textContent = '0%';
+    downloadSpeed.textContent = '';
+    downloadSize.textContent = '';
+
     window.location.href = `/download?url=${encodeURIComponent(videoUrl)}&quality=${quality}&clientId=${clientId}`;
 }
 
@@ -153,6 +167,22 @@ function downloadAudio() {
         alert('URL을 입력해주세요.');
         return;
     }
+
+    // 다운로드 시작 시 progress UI 초기화 및 표시
+    const progressContainer = document.getElementById('downloadProgress');
+    const progressFill = document.getElementById('progressFill');
+    const downloadType = document.getElementById('downloadType');
+    const downloadPercent = document.getElementById('downloadPercent');
+    const downloadSpeed = document.getElementById('downloadSpeed');
+    const downloadSize = document.getElementById('downloadSize');
+
+    progressContainer.style.display = 'block';
+    progressFill.style.width = '0%';
+    downloadType.textContent = 'MP3 다운로드 준비 중...';
+    downloadPercent.textContent = '0%';
+    downloadSpeed.textContent = '';
+    downloadSize.textContent = '';
+
     window.location.href = `/download-audio?url=${encodeURIComponent(videoUrl)}&clientId=${clientId}`;
 }
 
