@@ -168,19 +168,35 @@ app.get('/download', async (req, res) => {
         });
 
         // 진행 상태 처리
-        // 진행 상태 처리
+        let initialSize = null;
+        let totalFragments = null;
+
         download.stdout.on('data', (data) => {
             const output = data.toString();
             console.log('Download progress:', output);  // 디버깅을 위한 로그
 
-            const downloadMatch = output.match(/\[download\]\s+(\d+\.\d+)% of ~?\s*([\d.]+)([\w]+) at\s+([\d.]+)([\w]+)\/s ETA (\d+:\d+)/);
+            // 총 fragment 수 확인
+            const fragmentsMatch = output.match(/Total fragments: (\d+)/);
+            if (fragmentsMatch) {
+                totalFragments = parseInt(fragmentsMatch[1]);
+            }
+
+            const downloadMatch = output.match(/\[download\].*?(\d+\.\d+)% of ~?\s*([\d.]+)([\w]+) at\s+([\d.]+)([\w]+)\/s ETA (\d+:\d+).*?\(frag (\d+)\/(\d+)\)/);
             if (downloadMatch) {
-                const [, percent, size, sizeUnit, speed, speedUnit, eta] = downloadMatch;
+                const [, , size, sizeUnit, speed, speedUnit, eta, currentFrag, totalFrag] = downloadMatch;
+
+                // 초기 파일 크기 저장
+                if (!initialSize) {
+                    initialSize = `${size}${sizeUnit}`;
+                }
+
+                // fragment 기반 진행률 계산
+                const fragProgress = (parseInt(currentFrag) / parseInt(totalFrag)) * 100;
 
                 sendProgress(clientId, {
                     type: 'video',
-                    progress: parseFloat(percent),
-                    size: `${size}${sizeUnit}`,
+                    progress: Math.min(Math.round(fragProgress * 10) / 10, 99), // 소수점 1자리까지 표시, 최대 99%
+                    size: initialSize,
                     speed: `${speed}${speedUnit}/s`,
                     eta: eta
                 });
@@ -190,8 +206,19 @@ app.get('/download', async (req, res) => {
             if (output.includes('[Merger]')) {
                 sendProgress(clientId, {
                     type: 'video',
-                    progress: 99,
-                    status: '파일 병합 중...'
+                    progress: 99.5,
+                    status: '파일 병합 중...',
+                    size: initialSize
+                });
+            }
+
+            // 파일 삭제 메시지가 나오면 다운로드 완료로 처리
+            if (output.includes('Deleting original file')) {
+                sendProgress(clientId, {
+                    type: 'video',
+                    progress: 100,
+                    status: '다운로드 완료!',
+                    size: initialSize
                 });
             }
         });
@@ -261,18 +288,35 @@ app.get('/download-audio', async (req, res) => {
         });
 
         // 진행 상태 처리
+        let initialSize = null;
+        let totalFragments = null;
+
         download.stdout.on('data', (data) => {
             const output = data.toString();
             console.log('Download progress:', output);  // 디버깅을 위한 로그
 
-            const downloadMatch = output.match(/\[download\]\s+(\d+\.\d+)% of ~?\s*([\d.]+)([\w]+) at\s+([\d.]+)([\w]+)\/s ETA (\d+:\d+)/);
+            // 총 fragment 수 확인
+            const fragmentsMatch = output.match(/Total fragments: (\d+)/);
+            if (fragmentsMatch) {
+                totalFragments = parseInt(fragmentsMatch[1]);
+            }
+
+            const downloadMatch = output.match(/\[download\].*?(\d+\.\d+)% of ~?\s*([\d.]+)([\w]+) at\s+([\d.]+)([\w]+)\/s ETA (\d+:\d+).*?\(frag (\d+)\/(\d+)\)/);
             if (downloadMatch) {
-                const [, percent, size, sizeUnit, speed, speedUnit, eta] = downloadMatch;
+                const [, , size, sizeUnit, speed, speedUnit, eta, currentFrag, totalFrag] = downloadMatch;
+
+                // 초기 파일 크기 저장
+                if (!initialSize) {
+                    initialSize = `${size}${sizeUnit}`;
+                }
+
+                // fragment 기반 진행률 계산
+                const fragProgress = (parseInt(currentFrag) / parseInt(totalFrag)) * 100;
 
                 sendProgress(clientId, {
-                    type: 'audio',
-                    progress: parseFloat(percent),
-                    size: `${size}${sizeUnit}`,
+                    type: 'video',
+                    progress: Math.min(Math.round(fragProgress * 10) / 10, 99), // 소수점 1자리까지 표시, 최대 99%
+                    size: initialSize,
                     speed: `${speed}${speedUnit}/s`,
                     eta: eta
                 });
@@ -282,10 +326,31 @@ app.get('/download-audio', async (req, res) => {
             if (output.includes('[Merger]')) {
                 sendProgress(clientId, {
                     type: 'audio',
-                    progress: 99,
-                    status: '파일 병합 중...'
+                    progress: 99.5,
+                    status: '파일 병합 중...',
+                    size: initialSize
                 });
             }
+
+            // 파일 삭제 메시지가 나오면 다운로드 완료로 처리
+            if (output.includes('Deleting original file')) {
+                sendProgress(clientId, {
+                    type: 'audio',
+                    progress: 100,
+                    status: '다운로드 완료!',
+                    size: initialSize
+                });
+            }
+        });
+
+        // 에러 처리
+        download.stderr.on('data', (data) => {
+            console.error('Error:', data.toString());
+        });
+
+        // 에러 처리
+        download.stderr.on('data', (data) => {
+            console.error('Error:', data.toString());
         });
 
         // 에러 처리
