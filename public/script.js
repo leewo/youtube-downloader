@@ -1,3 +1,58 @@
+let ws;
+const clientId = Date.now();
+
+// 웹소켓 연결 설정
+function connectWebSocket() {
+    ws = new WebSocket(`ws://${window.location.host}`);
+
+    ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        updateProgress(data);
+    };
+
+    ws.onclose = () => {
+        setTimeout(connectWebSocket, 1000); // 재연결 시도
+    };
+}
+
+connectWebSocket();
+
+// 진행 상태 업데이트
+function updateProgress(data) {
+    const progressContainer = document.getElementById('downloadProgress');
+    const progressFill = document.getElementById('progressFill');
+    const downloadType = document.getElementById('downloadType');
+    const downloadPercent = document.getElementById('downloadPercent');
+    const downloadSpeed = document.getElementById('downloadSpeed');
+    const downloadSize = document.getElementById('downloadSize');
+
+    progressContainer.style.display = 'block';
+
+    if (data.type === 'error') {
+        downloadType.textContent = '오류 발생';
+        downloadPercent.textContent = data.message;
+        return;
+    }
+
+    downloadType.textContent = data.type === 'video' ? '비디오 다운로드 중...' : 'MP3 다운로드 중...';
+    downloadPercent.textContent = `${Math.round(data.progress)}%`;
+    progressFill.style.width = `${data.progress}%`;
+
+    if (data.speed) {
+        downloadSpeed.textContent = `다운로드 속도: ${data.speed}`;
+    }
+    if (data.size) {
+        downloadSize.textContent = `파일 크기: ${data.size}`;
+    }
+
+    if (data.progress === 100) {
+        setTimeout(() => {
+            progressContainer.style.display = 'none';
+            progressFill.style.width = '0%';
+        }, 2000);
+    }
+}
+
 async function getVideoInfo() {
     const videoUrl = document.getElementById('videoUrl').value;
     const loading = document.getElementById('loading');
@@ -63,19 +118,13 @@ function downloadVideo() {
     const videoUrl = document.getElementById('videoUrl').value;
     const quality = document.getElementById('qualitySelect').value;
 
-    if (!videoUrl) {
-        alert('URL을 입력해주세요.');
+    if (!videoUrl || !quality) {
+        alert('URL과 화질을 선택해주세요.');
         return;
     }
 
-    if (!quality) {
-        alert('화질을 선택해주세요.');
-        return;
-    }
-
-    // 다운로드 링크 생성 및 클릭
-    const downloadUrl = `/download?url=${encodeURIComponent(videoUrl)}&quality=${quality}`;
-    window.location.href = downloadUrl;
+   // 다운로드 링크 생성 및 클릭
+   window.location.href = `/download?url=${encodeURIComponent(videoUrl)}&quality=${quality}&clientId=${clientId}`;
 }
 
 function downloadAudio() {
@@ -84,7 +133,7 @@ function downloadAudio() {
         alert('URL을 입력해주세요.');
         return;
     }
-    window.location.href = `/download-audio?url=${encodeURIComponent(videoUrl)}`;
+    window.location.href = `/download-audio?url=${encodeURIComponent(videoUrl)}&clientId=${clientId}`;
 }
 
 function downloadSubtitle() {

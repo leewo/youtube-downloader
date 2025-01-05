@@ -4,8 +4,13 @@ const express = require('express');
 const youtubedl = require('youtube-dl-exec');
 const path = require('path');
 const fs = require('fs');
+const WebSocket = require('ws');
+const http = require('http');
 
 const app = express();
+const server = http.createServer(app);
+const wss = new WebSocket.Server({ server });
+
 const port = 3000;
 
 app.use(express.json());
@@ -74,10 +79,30 @@ function formatDate(dateString) {
         date.getDate().toString().padStart(2, '0');
 }
 
+// 웹소켓 연결 관리
+const clients = new Map();
+
+wss.on('connection', (ws) => {
+    const clientId = Date.now();
+    clients.set(clientId, ws);
+
+    ws.on('close', () => {
+        clients.delete(clientId);
+    });
+});
+
+// 진행 상태 전송 함수
+function sendProgress(clientId, data) {
+    const ws = clients.get(clientId);
+    if (ws) {
+        ws.send(JSON.stringify(data));
+    }
+}
+
 // 비디오 다운로드
 app.get('/download', async (req, res) => {
     try {
-        const { url, quality } = req.query;
+        const { url, quality, clientId } = req.query;
         const downloadPath = path.join(__dirname, 'downloads');
 
         if (!fs.existsSync(downloadPath)) {
@@ -97,31 +122,61 @@ app.get('/download', async (req, res) => {
         const fileName = `${uploadDate}_${safeTitle}.mp4`;
         const outputPath = path.join(downloadPath, fileName);
 
+        // 진행 상태 추적을 위한 설정
+        let startTime = Date.now();
+        let downloadedBytes = 0;
+        let totalBytes = 0;
+
         // 비디오 다운로드
         const heightValue = parseInt(quality.replace('p', ''));
         const formatString = `bestvideo[height=${heightValue}]+bestaudio/best[height<=${heightValue}]`;
 
-        await youtubedl(url, {
+        const download = youtubedl.exec(url, {
             format: formatString,
             mergeOutputFormat: 'mp4',
             output: outputPath,
             noCheckCertificates: true,
             noWarnings: true,
-            preferFreeFormats: true
+            preferFreeFormats: true,
+            progress: true
         });
 
-        // 파일 전송
-        res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName)}"`);
-        res.setHeader('Content-Type', 'video/mp4');
+        // 진행 상태 처리
+        download.stdout.on('data', (data) => {
+            const progressMatch = data.toString().match(/(\d+\.\d+)% of ~?(\d+\.\d+)(\w+) at\s+(\d+\.\d+)(\w+)\/s/);
+            if (progressMatch) {
+                const [, percent, size, sizeUnit, speed, speedUnit] = progressMatch;
 
-        const fileStream = fs.createReadStream(outputPath);
-        fileStream.pipe(res);
-        fileStream.on('end', () => {
-            fs.unlinkSync(outputPath);
+                sendProgress(clientId, {
+                    type: 'video',
+                    progress: parseFloat(percent),
+                    size: `${size}${sizeUnit}`,
+                    speed: `${speed}${speedUnit}/s`
+                });
+            }
+        });
+
+        // 다운로드 완료 후 파일 전송
+        download.on('close', () => {
+            sendProgress(clientId, { type: 'video', progress: 100 });
+
+            // 파일 전송
+            res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName)}"`);
+            res.setHeader('Content-Type', 'video/mp4');
+
+            const fileStream = fs.createReadStream(outputPath);
+            fileStream.pipe(res);
+            fileStream.on('end', () => {
+                fs.unlinkSync(outputPath);
+            });
         });
 
     } catch (error) {
         console.error('Download Error:', error);
+        sendProgress(clientId, {
+            type: 'error',
+            message: '다운로드에 실패했습니다: ' + error.message
+        });
         res.status(400).json({ error: '다운로드에 실패했습니다: ' + error.message });
     }
 });
@@ -129,7 +184,7 @@ app.get('/download', async (req, res) => {
 // 오디오(MP3) 다운로드
 app.get('/download-audio', async (req, res) => {
     try {
-        const { url } = req.query;
+        const { url, clientId } = req.query;
         const downloadPath = path.join(__dirname, 'downloads');
 
         if (!fs.existsSync(downloadPath)) {
@@ -150,13 +205,28 @@ app.get('/download-audio', async (req, res) => {
         const outputPath = path.join(downloadPath, fileName);
 
         // MP3 다운로드
-        await youtubedl(url, {
+        const download = youtubedl.exec(url, {
             extractAudio: true,
             audioFormat: 'mp3',
             audioQuality: 0, // 최고 품질
             output: outputPath,
             noCheckCertificates: true,
-            noWarnings: true
+            noWarnings: true,
+            progress: true
+        });
+
+        download.stdout.on('data', (data) => {
+            const progressMatch = data.toString().match(/(\d+\.\d+)% of ~?(\d+\.\d+)(\w+) at\s+(\d+\.\d+)(\w+)\/s/);
+            if (progressMatch) {
+                const [, percent, size, sizeUnit, speed, speedUnit] = progressMatch;
+
+                sendProgress(clientId, {
+                    type: 'audio',
+                    progress: parseFloat(percent),
+                    size: `${size}${sizeUnit}`,
+                    speed: `${speed}${speedUnit}/s`
+                });
+            }
         });
 
         res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName)}"`);
@@ -223,6 +293,6 @@ app.get('/download-subtitle', async (req, res) => {
     }
 });
 
-app.listen(port, () => {
+server.listen(port, () => {
     console.log(`서버가 http://localhost:${port} 에서 실행 중입니다.`);
 });
