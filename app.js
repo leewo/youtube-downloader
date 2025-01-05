@@ -66,24 +66,46 @@ app.get('/download', async (req, res) => {
         const tempFileName = `video-${Date.now()}.mp4`;
         const outputPath = path.join(downloadPath, tempFileName);
 
-        // 영상 다운로드
+        // youtube-dl-exec를 사용한 다운로드
         await youtubedl(url, {
-            format: quality || 'best',
-            output: outputPath
+            format: quality || 'best[ext=mp4]',  // mp4 포맷 지정
+            output: outputPath,
+            // 추가 옵션
+            noCheckCertificates: true,
+            noWarnings: true,
+            preferFreeFormats: true
         });
 
-        // 파일 전송
-        res.download(outputPath, (err) => {
-            // 전송 완료 후 임시 파일 삭제
-            if (fs.existsSync(outputPath)) {
-                fs.unlinkSync(outputPath);
-            }
+        // 파일 존재 확인
+        if (!fs.existsSync(outputPath)) {
+            throw new Error('다운로드된 파일을 찾을 수 없습니다.');
+        }
+
+        // Content-Disposition 헤더 설정
+        res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(tempFileName)}"`);
+        res.setHeader('Content-Type', 'video/mp4');
+
+        // 파일 스트림 전송
+        const fileStream = fs.createReadStream(outputPath);
+        fileStream.pipe(res);
+
+        // 전송 완료 후 임시 파일 삭제
+        fileStream.on('end', () => {
+            fs.unlinkSync(outputPath);
         });
 
     } catch (error) {
-        console.error('Error in /download:', error);
+        console.error('Download Error:', error);
         res.status(400).json({
-            error: '다운로드에 실패했습니다.'
+            error: '다운로드에 실패했습니다: ' + error.message
+        });
+
+        // 에러 발생 시 임시 파일 정리
+        const tempFiles = fs.readdirSync(path.join(__dirname, 'downloads'));
+        tempFiles.forEach(file => {
+            if (file.startsWith('video-')) {
+                fs.unlinkSync(path.join(__dirname, 'downloads', file));
+            }
         });
     }
 });
