@@ -45,15 +45,24 @@ function updateProgress(data) {
         return;
     }
 
+    // 상태 메시지 처리
+    if (data.status) {
+        downloadType.textContent = data.status;
+    } else {
+        downloadType.textContent = data.type === 'video' ? '비디오 다운로드 중...' : 'MP3 다운로드 중...';
+    }
+
     // 진행 상태 업데이트
     const progress = Math.round(data.progress);
-    downloadType.textContent = data.type === 'video' ? '비디오 다운로드 중...' : 'MP3 다운로드 중...';
     downloadPercent.textContent = `${progress}%`;
     progressFill.style.width = `${progress}%`;
 
     // 속도와 크기 정보 업데이트
     if (data.speed) {
         downloadSpeed.textContent = `다운로드 속도: ${data.speed}`;
+        if (data.eta) {
+            downloadSpeed.textContent += ` (남은 시간: ${data.eta})`;
+        }
         downloadSpeed.style.display = 'block';
     }
     if (data.size) {
@@ -134,7 +143,7 @@ async function getVideoInfo() {
     }
 }
 
-function downloadVideo() {
+async function downloadVideo() {
     const videoUrl = document.getElementById('videoUrl').value;
     const quality = document.getElementById('qualitySelect').value;
 
@@ -158,10 +167,45 @@ function downloadVideo() {
     downloadSpeed.textContent = '';
     downloadSize.textContent = '';
 
-    window.location.href = `/download?url=${encodeURIComponent(videoUrl)}&quality=${quality}&clientId=${clientId}`;
+    try {
+        // 다운로드 요청을 fetch로 보냄
+        const response = await fetch(`/download?url=${encodeURIComponent(videoUrl)}&quality=${quality}&clientId=${clientId}`, {
+            method: 'GET'
+        });
+
+        if (!response.ok) {
+            throw new Error('다운로드 중 오류가 발생했습니다.');
+        }
+
+        // 파일 이름 가져오기
+        const contentDisposition = response.headers.get('content-disposition');
+        let filename = 'video.mp4';
+        if (contentDisposition) {
+            const matches = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/.exec(contentDisposition);
+            if (matches != null && matches[1]) {
+                filename = decodeURIComponent(matches[1].replace(/['"]/g, ''));
+            }
+        }
+
+        // Blob으로 변환하여 다운로드
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+    } catch (error) {
+        console.error('Download error:', error);
+        alert(error.message);
+        progressContainer.style.display = 'none';
+    }
 }
 
-function downloadAudio() {
+async function downloadAudio() {
     const videoUrl = document.getElementById('videoUrl').value;
     if (!videoUrl) {
         alert('URL을 입력해주세요.');
@@ -183,7 +227,42 @@ function downloadAudio() {
     downloadSpeed.textContent = '';
     downloadSize.textContent = '';
 
-    window.location.href = `/download-audio?url=${encodeURIComponent(videoUrl)}&clientId=${clientId}`;
+    try {
+        // 다운로드 요청을 fetch로 보냄
+        const response = await fetch(`/download-audio?url=${encodeURIComponent(videoUrl)}&clientId=${clientId}`, {
+            method: 'GET'
+        });
+
+        if (!response.ok) {
+            throw new Error('다운로드 중 오류가 발생했습니다.');
+        }
+
+        // 파일 이름 가져오기
+        const contentDisposition = response.headers.get('content-disposition');
+        let filename = 'audio.mp3';
+        if (contentDisposition) {
+            const matches = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/.exec(contentDisposition);
+            if (matches != null && matches[1]) {
+                filename = decodeURIComponent(matches[1].replace(/['"]/g, ''));
+            }
+        }
+
+        // Blob으로 변환하여 다운로드
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+    } catch (error) {
+        console.error('Download error:', error);
+        alert(error.message);
+        progressContainer.style.display = 'none';
+    }
 }
 
 function downloadSubtitle() {

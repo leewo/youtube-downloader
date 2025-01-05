@@ -153,21 +153,37 @@ app.get('/download', async (req, res) => {
         });
 
         // 진행 상태 처리
+        // 진행 상태 처리
         download.stdout.on('data', (data) => {
             const output = data.toString();
             console.log('Download progress:', output);  // 디버깅을 위한 로그
 
-            const progressMatch = output.match(/(\d+\.\d+)% of ~?(\d+\.\d+)(\w+) at\s+(\d+\.\d+)(\w+)\/s/);
-            if (progressMatch) {
-                const [, percent, size, sizeUnit, speed, speedUnit] = progressMatch;
+            const downloadMatch = output.match(/\[download\]\s+(\d+\.\d+)% of ~?\s*([\d.]+)([\w]+) at\s+([\d.]+)([\w]+)\/s ETA (\d+:\d+)/);
+            if (downloadMatch) {
+                const [, percent, size, sizeUnit, speed, speedUnit, eta] = downloadMatch;
 
                 sendProgress(clientId, {
                     type: 'video',
                     progress: parseFloat(percent),
                     size: `${size}${sizeUnit}`,
-                    speed: `${speed}${speedUnit}/s`
+                    speed: `${speed}${speedUnit}/s`,
+                    eta: eta
                 });
             }
+
+            // 병합 진행 상태 처리
+            if (output.includes('[Merger]')) {
+                sendProgress(clientId, {
+                    type: 'video',
+                    progress: 99,
+                    status: '파일 병합 중...'
+                });
+            }
+        });
+
+        // 에러 처리
+        download.stderr.on('data', (data) => {
+            console.error('Error:', data.toString());
         });
 
         // 다운로드 완료 후 파일 전송
@@ -229,18 +245,37 @@ app.get('/download-audio', async (req, res) => {
             progress: true
         });
 
+        // 진행 상태 처리
         download.stdout.on('data', (data) => {
-            const progressMatch = data.toString().match(/(\d+\.\d+)% of ~?(\d+\.\d+)(\w+) at\s+(\d+\.\d+)(\w+)\/s/);
-            if (progressMatch) {
-                const [, percent, size, sizeUnit, speed, speedUnit] = progressMatch;
+            const output = data.toString();
+            console.log('Download progress:', output);  // 디버깅을 위한 로그
+
+            const downloadMatch = output.match(/\[download\]\s+(\d+\.\d+)% of ~?\s*([\d.]+)([\w]+) at\s+([\d.]+)([\w]+)\/s ETA (\d+:\d+)/);
+            if (downloadMatch) {
+                const [, percent, size, sizeUnit, speed, speedUnit, eta] = downloadMatch;
 
                 sendProgress(clientId, {
                     type: 'audio',
                     progress: parseFloat(percent),
                     size: `${size}${sizeUnit}`,
-                    speed: `${speed}${speedUnit}/s`
+                    speed: `${speed}${speedUnit}/s`,
+                    eta: eta
                 });
             }
+
+            // 병합 진행 상태 처리
+            if (output.includes('[Merger]')) {
+                sendProgress(clientId, {
+                    type: 'audio',
+                    progress: 99,
+                    status: '파일 병합 중...'
+                });
+            }
+        });
+
+        // 에러 처리
+        download.stderr.on('data', (data) => {
+            console.error('Error:', data.toString());
         });
 
         res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName)}"`);
