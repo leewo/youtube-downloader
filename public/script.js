@@ -77,3 +77,21 @@ function downloadVideo() {
     const downloadUrl = `/download?url=${encodeURIComponent(videoUrl)}&quality=${quality}`;
     window.location.href = downloadUrl;
 }
+
+function downloadAudio() {
+    const videoUrl = document.getElementById('videoUrl').value;
+    if (!videoUrl) {
+        alert('URL을 입력해주세요.');
+        return;
+    }
+    window.location.href = `/download-audio?url=${encodeURIComponent(videoUrl)}`;
+}
+
+function downloadSubtitle() {
+    const videoUrl = document.getElementById('videoUrl').value;
+    if (!videoUrl) {
+        alert('URL을 입력해주세요.');
+        return;
+    }
+    window.location.href = `/download-subtitle?url=${encodeURIComponent(videoUrl)}`;
+}

@@ -12,23 +12,44 @@
         
         <div class="input-section">
             <input type="text" id="videoUrl" placeholder="YouTube URL을 입력하세요">
-            <button onclick="getVideoInfo()">정보 가져오기</button>
+            <button onclick="getVideoInfo()" class="btn">정보 가져오기</button>
         </div>
 
-        <div id="videoInfo" class="video-info" style="display: none;">
+        <div id="loading" class="loading">
+            <div class="spinner"></div>
+            <p>영상 정보를 가져오는 중...</p>
+        </div>
+
+        <div id="videoInfo" class="video-info">
             <img id="thumbnail" src="" alt="썸네일">
             <h2 id="videoTitle"></h2>
             <p id="videoDuration"></p>
             
-            <select id="qualitySelect">
-                <option value="">화질 선택</option>
-            </select>
-            
-            <button onclick="downloadVideo()">다운로드</button>
-        </div>
+            <div class="download-options">
+                <div class="quality-section">
+                    <select id="qualitySelect">
+                        <option value="">화질 선택</option>
+                    </select>
+                    <button onclick="downloadVideo()" class="btn primary">비디오 다운로드</button>
+                </div>
+                <div class="additional-downloads">
+                    <button onclick="downloadAudio()" class="btn secondary">MP3 다운로드</button>
+                    <button onclick="downloadSubtitle()" class="btn secondary">영어 자막 다운로드</button>
+                </div>
+            </div>
 
-        <div id="loading" style="display: none;">
-            처리 중...
+            <!-- 다운로드 진행 상태 표시 -->
+            <div id="downloadProgress" class="progress-container" style="display: none;">
+                <div class="progress-label">
+                    <span id="downloadType">다운로드 중...</span>
+                    <span id="downloadPercent">0%</span>
+                </div>
+                <div class="progress-bar">
+                    <div id="progressFill" class="progress-fill"></div>
+                </div>
+                <p id="downloadSpeed" class="download-info"></p>
+                <p id="downloadSize" class="download-info"></p>
+            </div>
         </div>
     </div>
 

@@ -61,69 +61,165 @@ app.post('/info', async (req, res) => {
     }
 });
 
-// 다운로드 엔드포인트
+// 영상 제목에서 파일명으로 사용할 수 없는 문자 제거하는 함수
+function sanitizeFilename(title) {
+    return title.replace(/[<>:"\/\\|?*\x00-\x1F]/g, '_').trim();
+}
+
+// 날짜를 YYYYMMDD 형식으로 변환하는 함수
+function formatDate(dateString) {
+    const date = new Date(dateString);
+    return date.getFullYear().toString() +
+        (date.getMonth() + 1).toString().padStart(2, '0') +
+        date.getDate().toString().padStart(2, '0');
+}
+
+// 비디오 다운로드
 app.get('/download', async (req, res) => {
     try {
         const { url, quality } = req.query;
         const downloadPath = path.join(__dirname, 'downloads');
 
-        // downloads 폴더가 없으면 생성
         if (!fs.existsSync(downloadPath)) {
             fs.mkdirSync(downloadPath);
         }
 
-        // 임시 파일명 생성
-        const tempFileName = `video-${Date.now()}.mp4`;
-        const outputPath = path.join(downloadPath, tempFileName);
+        // 영상 정보 가져오기
+        const videoInfo = await youtubedl(url, {
+            dumpSingleJson: true,
+            noWarnings: true,
+            noCheckCertificates: true
+        });
 
-        // 화질에 따른 포맷 문자열 생성
+        // 파일명 생성 (업로드일자_제목.mp4)
+        const uploadDate = formatDate(videoInfo.upload_date);
+        const safeTitle = sanitizeFilename(videoInfo.title);
+        const fileName = `${uploadDate}_${safeTitle}.mp4`;
+        const outputPath = path.join(downloadPath, fileName);
+
+        // 비디오 다운로드
         const heightValue = parseInt(quality.replace('p', ''));
         const formatString = `bestvideo[height=${heightValue}]+bestaudio/best[height<=${heightValue}]`;
 
-        // youtube-dl-exec를 사용한 다운로드
         await youtubedl(url, {
             format: formatString,
             mergeOutputFormat: 'mp4',
             output: outputPath,
-            // 추가 옵션
             noCheckCertificates: true,
             noWarnings: true,
             preferFreeFormats: true
         });
 
-        // 파일 존재 확인
-        if (!fs.existsSync(outputPath)) {
-            throw new Error('다운로드된 파일을 찾을 수 없습니다.');
-        }
-
-        // Content-Disposition 헤더 설정
-        res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(tempFileName)}"`);
+        // 파일 전송
+        res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName)}"`);
         res.setHeader('Content-Type', 'video/mp4');
 
-        // 파일 스트림 전송
         const fileStream = fs.createReadStream(outputPath);
         fileStream.pipe(res);
-
-        // 전송 완료 후 임시 파일 삭제
         fileStream.on('end', () => {
             fs.unlinkSync(outputPath);
         });
 
     } catch (error) {
         console.error('Download Error:', error);
-        res.status(400).json({
-            error: '다운로드에 실패했습니다: ' + error.message
+        res.status(400).json({ error: '다운로드에 실패했습니다: ' + error.message });
+    }
+});
+
+// 오디오(MP3) 다운로드
+app.get('/download-audio', async (req, res) => {
+    try {
+        const { url } = req.query;
+        const downloadPath = path.join(__dirname, 'downloads');
+
+        if (!fs.existsSync(downloadPath)) {
+            fs.mkdirSync(downloadPath);
+        }
+
+        // 영상 정보 가져오기
+        const videoInfo = await youtubedl(url, {
+            dumpSingleJson: true,
+            noWarnings: true,
+            noCheckCertificates: true
         });
 
-        // 에러 발생 시 임시 파일 정리
-        if (fs.existsSync(downloadPath)) {
-            const tempFiles = fs.readdirSync(downloadPath);
-            tempFiles.forEach(file => {
-                if (file.startsWith('video-')) {
-                    fs.unlinkSync(path.join(downloadPath, file));
-                }
-            });
+        // 파일명 생성
+        const uploadDate = formatDate(videoInfo.upload_date);
+        const safeTitle = sanitizeFilename(videoInfo.title);
+        const fileName = `${uploadDate}_${safeTitle}.mp3`;
+        const outputPath = path.join(downloadPath, fileName);
+
+        // MP3 다운로드
+        await youtubedl(url, {
+            extractAudio: true,
+            audioFormat: 'mp3',
+            audioQuality: 0, // 최고 품질
+            output: outputPath,
+            noCheckCertificates: true,
+            noWarnings: true
+        });
+
+        res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName)}"`);
+        res.setHeader('Content-Type', 'audio/mp3');
+
+        const fileStream = fs.createReadStream(outputPath);
+        fileStream.pipe(res);
+        fileStream.on('end', () => {
+            fs.unlinkSync(outputPath);
+        });
+
+    } catch (error) {
+        console.error('Audio Download Error:', error);
+        res.status(400).json({ error: '오디오 다운로드에 실패했습니다: ' + error.message });
+    }
+});
+
+// 자막 다운로드
+app.get('/download-subtitle', async (req, res) => {
+    try {
+        const { url } = req.query;
+        const downloadPath = path.join(__dirname, 'downloads');
+
+        if (!fs.existsSync(downloadPath)) {
+            fs.mkdirSync(downloadPath);
         }
+
+        // 영상 정보 가져오기
+        const videoInfo = await youtubedl(url, {
+            dumpSingleJson: true,
+            noWarnings: true,
+            noCheckCertificates: true
+        });
+
+        // 파일명 생성
+        const uploadDate = formatDate(videoInfo.upload_date);
+        const safeTitle = sanitizeFilename(videoInfo.title);
+        const fileName = `${uploadDate}_${safeTitle}.srt`;
+        const outputPath = path.join(downloadPath, fileName);
+
+        // 자막 다운로드
+        await youtubedl(url, {
+            skipDownload: true,
+            writeAutoSub: true,
+            subLang: 'en',
+            subFormat: 'srt',
+            output: outputPath,
+            noCheckCertificates: true,
+            noWarnings: true
+        });
+
+        res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName)}"`);
+        res.setHeader('Content-Type', 'application/x-subrip');
+
+        const fileStream = fs.createReadStream(outputPath);
+        fileStream.pipe(res);
+        fileStream.on('end', () => {
+            fs.unlinkSync(outputPath);
+        });
+
+    } catch (error) {
+        console.error('Subtitle Download Error:', error);
+        res.status(400).json({ error: '자막 다운로드에 실패했습니다: ' + error.message });
     }
 });
 
