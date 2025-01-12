@@ -281,3 +281,10 @@ function downloadSubtitle() {
     }
     window.location.href = `/download-subtitle?url=${encodeURIComponent(videoUrl)}&clientId=${clientId}`;
 }
+
+function handleKeyPress(e) {
+    if (e.key === 'Enter') {
+        e.preventDefault(); // 폼 제출 방지
+        getVideoInfo();
+    }
+}
