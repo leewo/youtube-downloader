@@ -350,7 +350,7 @@ app.get('/download', async (req, res) => {
 });
 
 // MP3 다운로드용 실행 함수
-const execYtDlpAudio = async (url, outputPath) => {
+const execYtDlpAudio = async (url, outputPath, clientId) => {
     const binPath = getBinaryPath();
     console.log('Executing yt-dlp for audio with path:', binPath);
 
@@ -361,11 +361,33 @@ const execYtDlpAudio = async (url, outputPath) => {
             '-x',                      // 오디오 추출
             '--audio-format', 'mp3',   // MP3 형식
             '--audio-quality', '0',    // 최고 품질
-            '-o', outputPath
+            '-o', outputPath,
+            '--progress'  // 진행 상황 출력 활성화
         ]);
 
         ytProcess.stdout.on('data', (data) => {
-            console.log('Audio download progress:', data.toString());
+            const output = data.toString();
+            console.log('Audio download progress:', output);
+
+            // 진행률 파싱
+            const downloadMatch = output.match(/\[download\]\s+(\d+\.?\d*)%/);
+            if (downloadMatch && clientId) {
+                const progress = Math.min(parseFloat(downloadMatch[1]), 99);
+                sendProgress(clientId, {
+                    type: 'audio',
+                    progress: progress,
+                    status: '다운로드 중...'
+                });
+            }
+
+            // 변환 상태 확인
+            if (output.includes('[ffmpeg]') && clientId) {
+                sendProgress(clientId, {
+                    type: 'audio',
+                    progress: 99.5,
+                    status: 'MP3로 변환 중...'
+                });
+            }
         });
 
         ytProcess.stderr.on('data', (data) => {
@@ -374,6 +396,13 @@ const execYtDlpAudio = async (url, outputPath) => {
 
         ytProcess.on('close', (code) => {
             if (code === 0) {
+                if (clientId) {
+                    sendProgress(clientId, {
+                        type: 'audio',
+                        progress: 100,
+                        status: '다운로드 완료!'
+                    });
+                }
                 resolve();
             } else {
                 reject(new Error('Audio download failed'));
@@ -410,7 +439,7 @@ app.get('/download-audio', async (req, res) => {
             });
         }
 
-        await execYtDlpAudio(url, outputPath);
+        await execYtDlpAudio(url, outputPath, clientId);
 
         if (clientId) {
             sendProgress(clientId, {
@@ -446,11 +475,19 @@ app.get('/download-audio', async (req, res) => {
     }
 });
 
-const execYtDlpSubtitle = async (url, outputPath) => {
+const execYtDlpSubtitle = async (url, outputPath, clientId) => {
     const binPath = getBinaryPath();
     console.log('Executing yt-dlp for subtitles with path:', binPath);
 
     return new Promise((resolve, reject) => {
+        if (clientId) {
+            sendProgress(clientId, {
+                type: 'subtitle',
+                progress: 0,
+                status: '자막 확인 중...'
+            });
+        }
+
         const { spawn } = require('child_process');
         const ytProcess = spawn(binPath || 'yt-dlp', [
             url,
@@ -459,13 +496,29 @@ const execYtDlpSubtitle = async (url, outputPath) => {
             '--write-sub',             // 일반 자막
             '--sub-lang', 'en.*',      // 영어 자막
             '--convert-subs', 'srt',   // SRT 형식으로 변환
-            '-o', outputPath
+            '-o', outputPath,
+            '--progress'
         ]);
 
-        let stdout = '';
         ytProcess.stdout.on('data', (data) => {
-            stdout += data;
-            console.log('Subtitle download progress:', data.toString());
+            const output = data.toString();
+            console.log('Subtitle download progress:', output);
+
+            if (clientId) {
+                if (output.includes('Writing video subtitles')) {
+                    sendProgress(clientId, {
+                        type: 'subtitle',
+                        progress: 50,
+                        status: '자막 다운로드 중...'
+                    });
+                } else if (output.includes('has already been downloaded')) {
+                    sendProgress(clientId, {
+                        type: 'subtitle',
+                        progress: 75,
+                        status: '자막 변환 중...'
+                    });
+                }
+            }
         });
 
         ytProcess.stderr.on('data', (data) => {
@@ -474,7 +527,14 @@ const execYtDlpSubtitle = async (url, outputPath) => {
 
         ytProcess.on('close', (code) => {
             if (code === 0) {
-                resolve(stdout);
+                if (clientId) {
+                    sendProgress(clientId, {
+                        type: 'subtitle',
+                        progress: 100,
+                        status: '다운로드 완료!'
+                    });
+                }
+                resolve();
             } else {
                 reject(new Error('Subtitle download failed'));
             }
@@ -484,7 +544,7 @@ const execYtDlpSubtitle = async (url, outputPath) => {
 
 // 자막 다운로드
 app.get('/download-subtitle', async (req, res) => {
-    const { url } = req.query;
+    const { url, clientId } = req.query;
 
     try {
         const tempDir = getTempDir();
@@ -503,7 +563,7 @@ app.get('/download-subtitle', async (req, res) => {
         console.log('Attempting to download subtitles...');
 
         // 자막 다운로드 실행
-        await execYtDlpSubtitle(url, outputPath);
+        await execYtDlpSubtitle(url, outputPath, clientId);
 
         // 가능한 자막 파일명들 확인
         const possibleFiles = [
@@ -547,10 +607,12 @@ app.get('/download-subtitle', async (req, res) => {
 
     } catch (error) {
         console.error('Subtitle Download Error:', error);
-        console.error('Error details:', {
-            message: error.message,
-            stack: error.stack
-        });
+        if (clientId) {
+            sendProgress(clientId, {
+                type: 'error',
+                message: '자막 다운로드에 실패했습니다: ' + error.message
+            });
+        }
         res.status(400).json({
             error: '자막 다운로드에 실패했습니다. 이 영상에 영어 자막이 없거나 자동 생성된 자막을 사용할 수 없습니다.'
         });
