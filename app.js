@@ -250,8 +250,11 @@ app.get('/download', async (req, res) => {
 
         // 영상 정보 가져오기
         const videoInfo = await execYtDlp(url, ['--no-warnings']);
+
+        // 날짜 포함한 파일명 생성
+        const uploadDate = formatDate(videoInfo.upload_date);
         const safeTitle = sanitizeFilename(videoInfo.title);
-        const fileName = `${safeTitle}.mp4`;
+        const fileName = `${uploadDate}_${safeTitle}.mp4`;
         const outputPath = path.join(tempDir, fileName);
 
         console.log('Output path:', outputPath);
