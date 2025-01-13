@@ -1,11 +1,26 @@
 'use strict';
 
 const express = require('express');
-const youtubedl = require('youtube-dl-exec');
 const path = require('path');
 const fs = require('fs');
 const WebSocket = require('ws');
 const http = require('http');
+const os = require('os');
+
+const getRootDir = () => {
+    const isPackaged = 'pkg' in process;
+    if (isPackaged) {
+        return path.dirname(process.execPath);
+    }
+    return __dirname;
+};
+
+const rootDir = getRootDir();
+console.log('Root directory:', rootDir);
+
+// 디렉토리 존재 여부 확인 및 로깅
+console.log('Public directory exists:', fs.existsSync(path.join(rootDir, 'public')));
+console.log('Views directory exists:', fs.existsSync(path.join(rootDir, 'views')));
 
 const app = express();
 const server = http.createServer(app);
@@ -15,26 +30,111 @@ const port = 3000;
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(express.static('public'));
-app.set('view engine', 'ejs');
-app.set('views', path.join(__dirname, 'views'));
 
+app.use(express.static(path.join(rootDir, 'public')));
+app.set('view engine', 'ejs');
+app.set('views', path.join(rootDir, 'views'));
+
+// Public 디렉토리에 대한 추가 로깅
+console.log('Static directory content:', fs.readdirSync(path.join(rootDir, 'public')));
+console.log('Views directory content:', fs.readdirSync(path.join(rootDir, 'views')));
+
+// 라우트 설정
 app.get('/', (req, res) => {
+    console.log('Rendering index page');
+    console.log('View engine:', app.get('view engine'));
+    console.log('Views directory:', app.get('views'));
     res.render('index');
 });
+
+// downloads 디렉토리 설정
+const downloadsDir = path.join(rootDir, 'downloads');
+if (!fs.existsSync(downloadsDir)) {
+    fs.mkdirSync(downloadsDir);
+}
+
+const getBinaryPath = () => {
+    const isPackaged = 'pkg' in process;
+    const binName = process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp';
+    let binPath;
+
+    if (isPackaged) {
+        // 패키징된 실행 파일인 경우
+        binPath = path.join(rootDir, binName);
+    } else {
+        // 개발 환경인 경우
+        binPath = path.join(__dirname, 'node_modules', 'youtube-dl-exec', 'bin', binName);
+
+        // binPath가 존재하지 않으면 youtube-dl-exec의 기본 경로 사용
+        if (!fs.existsSync(binPath)) {
+            const ytdlExec = require('youtube-dl-exec');
+            binPath = ytdlExec.getBinaryPath();
+        }
+    }
+
+    console.log('Binary path:', binPath);
+    console.log('Binary exists:', fs.existsSync(binPath));
+    return binPath;
+};
+
+const execYtDlp = async (url, args = []) => {
+    const binPath = getBinaryPath();
+    console.log('Executing yt-dlp with binary path:', binPath);
+
+    return new Promise((resolve, reject) => {
+        const { spawn } = require('child_process');
+        const ytProcess = spawn(binPath || 'yt-dlp', [
+            url,
+            '--dump-single-json',
+            '--no-warnings',
+            '--no-call-home',
+            '--prefer-free-formats',
+            '--youtube-skip-dash-manifest',
+            ...args
+        ]);
+
+        let stdout = '';
+        let stderr = '';
+
+        ytProcess.stdout.on('data', (data) => {
+            stdout += data;
+        });
+
+        ytProcess.stderr.on('data', (data) => {
+            stderr += data;
+            console.error('yt-dlp stderr:', data.toString());
+        });
+
+        ytProcess.on('error', (error) => {
+            console.error('yt-dlp spawn error:', error);
+            reject(error);
+        });
+
+        ytProcess.on('close', (code) => {
+            console.log('yt-dlp process exited with code:', code);
+            if (code === 0) {
+                try {
+                    const data = JSON.parse(stdout);
+                    resolve(data);
+                } catch (error) {
+                    console.error('Failed to parse yt-dlp output:', error);
+                    reject(new Error('Failed to parse yt-dlp output'));
+                }
+            } else {
+                console.error('yt-dlp stderr output:', stderr);
+                reject(new Error(stderr || 'yt-dlp command failed'));
+            }
+        });
+    });
+};
 
 // 영상 정보 가져오기
 app.post('/info', async (req, res) => {
     try {
         const { url } = req.body;
+        console.log('Fetching info for URL:', url);
 
-        const info = await youtubedl(url, {
-            dumpSingleJson: true,
-            noWarnings: true,
-            noCallHome: true,
-            preferFreeFormats: true,
-            youtubeSkipDashManifest: true
-        });
+        const info = await execYtDlp(url);
 
         // 사용 가능한 포맷들을 필터링하고 정리
         const formats = info.formats
@@ -125,141 +225,124 @@ function sendProgress(clientId, data) {
     }
 }
 
+// 임시 디렉토리 생성 함수
+const getTempDir = () => {
+    const tempDir = path.join(os.tmpdir(), 'youtube-downloader');
+    if (!fs.existsSync(tempDir)) {
+        try {
+            fs.mkdirSync(tempDir, { recursive: true });
+        } catch (error) {
+            console.error('Error creating temp directory:', error);
+            // 실패하면 os의 임시 디렉토리 사용
+            return os.tmpdir();
+        }
+    }
+    return tempDir;
+};
+
 // 비디오 다운로드
 app.get('/download', async (req, res) => {
-    try {
-        const { url, quality, clientId } = req.query;
-        const downloadPath = path.join(__dirname, 'downloads');
+    const { url, quality, clientId } = req.query;
 
-        if (!fs.existsSync(downloadPath)) {
-            fs.mkdirSync(downloadPath);
-        }
+    try {
+        const tempDir = getTempDir();
+        console.log('Using temp directory:', tempDir);
 
         // 영상 정보 가져오기
-        const videoInfo = await youtubedl(url, {
-            dumpSingleJson: true,
-            noWarnings: true,
-            noCheckCertificates: true
-        });
-
-        // 파일명 생성 (업로드일자_제목.mp4)
-        const uploadDate = formatDate(videoInfo.upload_date);
+        const videoInfo = await execYtDlp(url, ['--no-warnings']);
         const safeTitle = sanitizeFilename(videoInfo.title);
-        const fileName = `${uploadDate}_${safeTitle}.mp4`;
-        const outputPath = path.join(downloadPath, fileName);
+        const fileName = `${safeTitle}.mp4`;
+        const outputPath = path.join(tempDir, fileName);
 
-        // 진행 상태 추적을 위한 설정
-        let startTime = Date.now();
-        let downloadedBytes = 0;
-        let totalBytes = 0;
+        console.log('Output path:', outputPath);
 
-        // 비디오 다운로드
+        // 다운로드 명령 실행
         const heightValue = parseInt(quality.replace('p', ''));
-        const formatString = `bestvideo[height=${heightValue}]+bestaudio/best[height<=${heightValue}]`;
+        const downloadProcess = require('child_process').spawn(getBinaryPath(), [
+            url,
+            '-f', `bestvideo[height=${heightValue}]+bestaudio/best[height<=${heightValue}]`,
+            '-o', outputPath,
+            '--merge-output-format', 'mp4'
+        ]);
 
-        const download = youtubedl.exec(url, {
-            format: formatString,
-            mergeOutputFormat: 'mp4',
-            output: outputPath,
-            noCheckCertificates: true,
-            noWarnings: true,
-            preferFreeFormats: true,
-            progress: true
+        let progress = 0;
+
+        downloadProcess.stdout.on('data', (data) => {
+            const output = data.toString();
+            console.log('Download progress:', output);
+
+            // Progress parsing
+            const downloadMatch = output.match(/\[download\]\s+(\d+\.?\d*)%/);
+            if (downloadMatch) {
+                progress = Math.min(parseFloat(downloadMatch[1]), 99);
+                if (clientId) {
+                    sendProgress(clientId, {
+                        type: 'video',
+                        progress: progress,
+                        status: '다운로드 중...'
+                    });
+                }
+            }
+
+            if (output.includes('[Merger]')) {
+                if (clientId) {
+                    sendProgress(clientId, {
+                        type: 'video',
+                        progress: 99.5,
+                        status: '파일 병합 중...'
+                    });
+                }
+            }
         });
 
-        // 기존 파일 존재 시 삭제
-        if (fs.existsSync(outputPath)) {
-            try {
-                fs.unlinkSync(outputPath);
-                console.log('Removed existing file:', outputPath);
-            } catch (error) {
-                console.error('Error removing existing file:', error);
-            }
-        }
+        downloadProcess.stderr.on('data', (data) => {
+            console.error('Download error:', data.toString());
+        });
 
-        // 진행 상태 처리
-        let initialSize = null;
-        let totalFragments = null;
-
-        download.stdout.on('data', (data) => {
-            const output = data.toString();
-            console.log('Download progress:', output);  // 디버깅을 위한 로그
-
-            // 총 fragment 수 확인
-            const fragmentsMatch = output.match(/Total fragments: (\d+)/);
-            if (fragmentsMatch) {
-                totalFragments = parseInt(fragmentsMatch[1]);
-            }
-
-            const downloadMatch = output.match(/\[download\].*?(\d+\.\d+)% of ~?\s*([\d.]+)([\w]+) at\s+([\d.]+)([\w]+)\/s ETA (\d+:\d+).*?\(frag (\d+)\/(\d+)\)/);
-            if (downloadMatch) {
-                const [, , size, sizeUnit, speed, speedUnit, eta, currentFrag, totalFrag] = downloadMatch;
-
-                // 초기 파일 크기 저장
-                if (!initialSize) {
-                    initialSize = `${size}${sizeUnit}`;
+        // Wait for download to complete
+        await new Promise((resolve, reject) => {
+            downloadProcess.on('close', (code) => {
+                if (code === 0) {
+                    resolve();
+                } else {
+                    reject(new Error(`Download failed with code ${code}`));
                 }
+            });
+        });
 
-                // fragment 기반 진행률 계산
-                const fragProgress = (parseInt(currentFrag) / parseInt(totalFrag)) * 100;
-
-                sendProgress(clientId, {
-                    type: 'video',
-                    progress: Math.min(Math.round(fragProgress * 10) / 10, 99), // 소수점 1자리까지 표시, 최대 99%
-                    size: initialSize,
-                    speed: `${speed}${speedUnit}/s`,
-                    eta: eta
-                });
-            }
-
-            // 병합 진행 상태 처리
-            if (output.includes('[Merger]')) {
-                sendProgress(clientId, {
-                    type: 'video',
-                    progress: 99.5,
-                    status: '파일 병합 중...',
-                    size: initialSize
-                });
-            }
-
-            // 파일 삭제 메시지가 나오면 다운로드 완료로 처리
-            if (output.includes('Deleting original file')) {
+        if (fs.existsSync(outputPath)) {
+            if (clientId) {
                 sendProgress(clientId, {
                     type: 'video',
                     progress: 100,
-                    status: '다운로드 완료!',
-                    size: initialSize
+                    status: '다운로드 완료!'
                 });
             }
-        });
 
-        // 에러 처리
-        download.stderr.on('data', (data) => {
-            console.error('Error:', data.toString());
-        });
-
-        // 다운로드 완료 후 파일 전송
-        download.on('close', () => {
-            sendProgress(clientId, { type: 'video', progress: 100 });
-
-            // 파일 전송
             res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName)}"`);
             res.setHeader('Content-Type', 'video/mp4');
 
             const fileStream = fs.createReadStream(outputPath);
             fileStream.pipe(res);
             fileStream.on('end', () => {
-                fs.unlinkSync(outputPath);
+                try {
+                    fs.unlinkSync(outputPath);
+                } catch (error) {
+                    console.error('Error removing temp file:', error);
+                }
             });
-        });
-
+        } else {
+            throw new Error('Downloaded file not found');
+        }
     } catch (error) {
         console.error('Download Error:', error);
-        sendProgress(clientId, {
-            type: 'error',
-            message: '다운로드에 실패했습니다: ' + error.message
-        });
-        res.status(400).json({ error: '다운로드에 실패했습니다: ' + error.message });
+        if (clientId) {
+            sendProgress(clientId, {
+                type: 'error',
+                message: '다운로드에 실패했습니다: ' + error.message
+            });
+        }
+        res.status(500).json({ error: '다운로드에 실패했습니다: ' + error.message });
     }
 });
 

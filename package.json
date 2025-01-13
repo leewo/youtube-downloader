@@ -12,8 +12,7 @@
   "pkg": {
     "assets": [
       "views/**/*",
-      "public/**/*",
-      "node_modules/youtube-dl-exec/**/*"
+      "public/**/*"
     ],
     "targets": [
       "node16-win-x64",
@@ -24,7 +23,9 @@
   "scripts": {
     "start": "node app.js",
     "test": "echo \"Error: no test specified\" && exit 1",
-    "build": "pkg . --compress GZip"
+    "prebuild": "mkdir -p pkg-cache",
+    "build": "PKG_CACHE_PATH=./pkg-cache pkg . --compress GZip",
+    "postbuild": "mkdir -p dist/public dist/views && cp -r public/* dist/public/ && cp -r views/* dist/views/ && chmod +x dist/youtube_down-linux && cp -f node_modules/youtube-dl-exec/bin/yt-dlp dist/"
   },
   "keywords": [],
   "license": "ISC",
