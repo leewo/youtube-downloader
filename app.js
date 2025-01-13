@@ -168,7 +168,10 @@ app.post('/info', async (req, res) => {
 
 // 영상 제목에서 파일명으로 사용할 수 없는 문자 제거하는 함수
 function sanitizeFilename(title) {
-    return title.replace(/[<>:"\/\\|?*\x00-\x1F]/g, '_').trim();
+    return title
+        .replace(/[<>:"\/\\|?*\x00-\x1F]/g, '') // Windows 제한 문자 제거
+        .replace(/'/g, "'")  // 작은따옴표 통일
+        .trim();
 }
 
 // 날짜를 YYYYMMDD 형식으로 변환하는 함수
@@ -268,20 +271,27 @@ app.get('/download', async (req, res) => {
             '--merge-output-format', 'mp4'
         ]);
 
-        let progress = 0;
+        let totalFragments = null;
 
         downloadProcess.stdout.on('data', (data) => {
             const output = data.toString();
             console.log('Download progress:', output);
 
-            // Progress parsing
-            const downloadMatch = output.match(/\[download\]\s+(\d+\.?\d*)%/);
-            if (downloadMatch) {
-                progress = Math.min(parseFloat(downloadMatch[1]), 99);
+            // 총 fragment 수 확인
+            const fragmentsMatch = output.match(/Total fragments: (\d+)/);
+            if (fragmentsMatch) {
+                totalFragments = parseInt(fragmentsMatch[1]);
+            }
+
+            // Progress parsing - fragment 기반
+            const downloadMatch = output.match(/\[download\].*?\(frag (\d+)\/(\d+)\)/);
+            if (downloadMatch && totalFragments) {
+                const currentFrag = parseInt(downloadMatch[1]);
+                const progress = (currentFrag / totalFragments) * 100;
                 if (clientId) {
                     sendProgress(clientId, {
                         type: 'video',
-                        progress: progress,
+                        progress: Math.min(Math.round(progress * 10) / 10, 99),
                         status: '다운로드 중...'
                     });
                 }
