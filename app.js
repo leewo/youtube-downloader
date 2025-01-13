@@ -349,179 +349,171 @@ app.get('/download', async (req, res) => {
     }
 });
 
-// 오디오(MP3) 다운로드
-app.get('/download-audio', async (req, res) => {
-    try {
-        const { url, clientId } = req.query;
-        const downloadPath = path.join(__dirname, 'downloads');
+// MP3 다운로드용 실행 함수
+const execYtDlpAudio = async (url, outputPath) => {
+    const binPath = getBinaryPath();
+    console.log('Executing yt-dlp for audio with path:', binPath);
 
-        if (!fs.existsSync(downloadPath)) {
-            fs.mkdirSync(downloadPath);
-        }
+    return new Promise((resolve, reject) => {
+        const { spawn } = require('child_process');
+        const ytProcess = spawn(binPath || 'yt-dlp', [
+            url,
+            '-x',                      // 오디오 추출
+            '--audio-format', 'mp3',   // MP3 형식
+            '--audio-quality', '0',    // 최고 품질
+            '-o', outputPath
+        ]);
 
-        // 영상 정보 가져오기
-        const videoInfo = await youtubedl(url, {
-            dumpSingleJson: true,
-            noWarnings: true,
-            noCheckCertificates: true
+        ytProcess.stdout.on('data', (data) => {
+            console.log('Audio download progress:', data.toString());
         });
 
-        // 파일명 생성
+        ytProcess.stderr.on('data', (data) => {
+            console.error('Audio download error:', data.toString());
+        });
+
+        ytProcess.on('close', (code) => {
+            if (code === 0) {
+                resolve();
+            } else {
+                reject(new Error('Audio download failed'));
+            }
+        });
+    });
+};
+
+// 오디오(MP3) 다운로드
+app.get('/download-audio', async (req, res) => {
+    const { url, clientId } = req.query;
+
+    try {
+        const tempDir = getTempDir();
+        console.log('Using temp directory for audio:', tempDir);
+
+        // 영상 정보 가져오기
+        const videoInfo = await execYtDlp(url, ['--no-warnings']);
+
+        // 파일명 생성 (날짜 포함)
         const uploadDate = formatDate(videoInfo.upload_date);
         const safeTitle = sanitizeFilename(videoInfo.title);
         const fileName = `${uploadDate}_${safeTitle}.mp3`;
-        const outputPath = path.join(downloadPath, fileName);
+        const outputPath = path.join(tempDir, fileName);
+
+        console.log('MP3 output path:', outputPath);
 
         // MP3 다운로드
-        const download = youtubedl.exec(url, {
-            extractAudio: true,
-            audioFormat: 'mp3',
-            audioQuality: 0, // 최고 품질
-            output: outputPath,
-            noCheckCertificates: true,
-            noWarnings: true,
-            progress: true
-        });
+        if (clientId) {
+            sendProgress(clientId, {
+                type: 'audio',
+                progress: 0,
+                status: '다운로드 시작...'
+            });
+        }
 
-        // 진행 상태 처리
-        let initialSize = null;
+        await execYtDlpAudio(url, outputPath);
 
-        download.stdout.on('data', (data) => {
-            const output = data.toString();
-            console.log('Audio download progress:', output);
-
-            const downloadMatch = output.match(/\[download\].*?(\d+\.\d+)% of ~?\s*([\d.]+)([\w]+) at\s+([\d.]+)([\w]+)\/s ETA (\d+:\d+)/);
-            if (downloadMatch) {
-                const [, progress, size, sizeUnit, speed, speedUnit, eta] = downloadMatch;
-
-                if (!initialSize) {
-                    initialSize = `${size}${sizeUnit}`;
-                }
-
-                sendProgress(clientId, {
-                    type: 'audio',
-                    progress: Math.min(Math.round(parseFloat(progress) * 10) / 10, 99),
-                    size: initialSize,
-                    speed: `${speed}${speedUnit}/s`,
-                    eta: eta
-                });
-            }
-
-            if (output.includes('[ffmpeg]')) {
-                sendProgress(clientId, {
-                    type: 'audio',
-                    progress: 99.5,
-                    status: '오디오 변환 중...',
-                    size: initialSize
-                });
-            }
-        });
-
-        // 에러 처리
-        download.stderr.on('data', (data) => {
-            console.error('Error:', data.toString());
-        });
-
-        // 다운로드 완료 후 파일 전송
-        download.on('close', () => {
+        if (clientId) {
             sendProgress(clientId, {
                 type: 'audio',
                 progress: 100,
                 status: '다운로드 완료!'
             });
+        }
 
-            res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName)}"`);
-            res.setHeader('Content-Type', 'audio/mp3');
+        // 파일 전송
+        res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName)}"`);
+        res.setHeader('Content-Type', 'audio/mp3');
 
-            const fileStream = fs.createReadStream(outputPath);
-            fileStream.pipe(res);
-            fileStream.on('end', () => {
+        const fileStream = fs.createReadStream(outputPath);
+        fileStream.pipe(res);
+        fileStream.on('end', () => {
+            try {
                 fs.unlinkSync(outputPath);
-            });
+            } catch (error) {
+                console.error('Error removing temp file:', error);
+            }
         });
 
     } catch (error) {
         console.error('Audio Download Error:', error);
-        sendProgress(clientId, {
-            type: 'error',
-            message: '오디오 다운로드에 실패했습니다: ' + error.message
-        });
+        if (clientId) {
+            sendProgress(clientId, {
+                type: 'error',
+                message: '오디오 다운로드에 실패했습니다: ' + error.message
+            });
+        }
         res.status(400).json({ error: '오디오 다운로드에 실패했습니다: ' + error.message });
     }
 });
 
-// 자막 다운로드
-app.get('/download-subtitle', async (req, res) => {
-    try {
-        const { url } = req.query;
-        const downloadPath = path.join(__dirname, 'downloads');
+const execYtDlpSubtitle = async (url, outputPath) => {
+    const binPath = getBinaryPath();
+    console.log('Executing yt-dlp for subtitles with path:', binPath);
 
-        if (!fs.existsSync(downloadPath)) {
-            fs.mkdirSync(downloadPath);
-        }
+    return new Promise((resolve, reject) => {
+        const { spawn } = require('child_process');
+        const ytProcess = spawn(binPath || 'yt-dlp', [
+            url,
+            '--skip-download',         // 비디오 다운로드 건너뛰기
+            '--write-auto-sub',        // 자동 생성 자막
+            '--write-sub',             // 일반 자막
+            '--sub-lang', 'en.*',      // 영어 자막
+            '--convert-subs', 'srt',   // SRT 형식으로 변환
+            '-o', outputPath
+        ]);
 
-        // 영상 정보 가져오기
-        const videoInfo = await youtubedl(url, {
-            dumpSingleJson: true,
-            noWarnings: true,
-            noCheckCertificates: true
+        let stdout = '';
+        ytProcess.stdout.on('data', (data) => {
+            stdout += data;
+            console.log('Subtitle download progress:', data.toString());
         });
 
-        console.log('Video info retrieved:', videoInfo.id);
+        ytProcess.stderr.on('data', (data) => {
+            console.error('Subtitle download error:', data.toString());
+        });
+
+        ytProcess.on('close', (code) => {
+            if (code === 0) {
+                resolve(stdout);
+            } else {
+                reject(new Error('Subtitle download failed'));
+            }
+        });
+    });
+};
+
+// 자막 다운로드
+app.get('/download-subtitle', async (req, res) => {
+    const { url } = req.query;
+
+    try {
+        const tempDir = getTempDir();
+        console.log('Using temp directory for subtitle:', tempDir);
+
+        // 영상 정보 가져오기
+        const videoInfo = await execYtDlp(url, ['--no-warnings']);
 
         // 파일명 생성
         const uploadDate = formatDate(videoInfo.upload_date);
         const safeTitle = sanitizeFilename(videoInfo.title);
         const baseFileName = `${uploadDate}_${safeTitle}`;
         const finalFileName = `${baseFileName}.srt`;
-        const finalOutputPath = path.join(downloadPath, finalFileName);
+        const outputPath = path.join(tempDir, baseFileName);
 
         console.log('Attempting to download subtitles...');
 
-        // 자막 다운로드 시도
-        const downloadProcess = youtubedl.exec(url, {
-            skipDownload: true,
-            writeAutoSubs: true,
-            writeSubs: true,
-            subLangs: 'en.*',  // 모든 영어 자막 시도
-            convertSubs: 'srt',
-            output: path.join(downloadPath, baseFileName + '.%(ext)s'),
-            noCheckCertificates: true,
-            noWarnings: true
-        });
-
-        // stdout 로깅
-        downloadProcess.stdout.on('data', (data) => {
-            console.log('Download process output:', data.toString());
-        });
-
-        // stderr 로깅
-        downloadProcess.stderr.on('data', (data) => {
-            console.log('Download process error:', data.toString());
-        });
-
-        // 다운로드 프로세스 완료 대기
-        await new Promise((resolve, reject) => {
-            downloadProcess.on('close', (code) => {
-                if (code === 0) {
-                    resolve();
-                } else {
-                    reject(new Error(`Download process exited with code ${code}`));
-                }
-            });
-        });
-
-        console.log('Download process completed');
+        // 자막 다운로드 실행
+        await execYtDlpSubtitle(url, outputPath);
 
         // 가능한 자막 파일명들 확인
         const possibleFiles = [
-            finalFileName,
-            `${baseFileName}.en.srt`,
-            `${baseFileName}.en-US.srt`,
-            `${baseFileName}.en-GB.srt`,
-            `${baseFileName}.en_US.srt`,
-            `${baseFileName}.en_GB.srt`
-        ].map(fname => path.join(downloadPath, fname));
+            `${outputPath}.srt`,
+            `${outputPath}.en.srt`,
+            `${outputPath}.en-US.srt`,
+            `${outputPath}.en-GB.srt`,
+            `${outputPath}.en_US.srt`,
+            `${outputPath}.en_GB.srt`
+        ];
 
         console.log('Checking for subtitle files:', possibleFiles);
 
@@ -534,18 +526,23 @@ app.get('/download-subtitle', async (req, res) => {
 
         console.log('Found subtitle file:', existingSubtitle);
 
-        // 파일 이름이 finalOutputPath와 다르면 이름 변경
-        if (existingSubtitle !== finalOutputPath) {
-            fs.renameSync(existingSubtitle, finalOutputPath);
-        }
-
+        // 파일 전송
         res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(finalFileName)}"`);
         res.setHeader('Content-Type', 'application/x-subrip');
 
-        const fileStream = fs.createReadStream(finalOutputPath);
+        const fileStream = fs.createReadStream(existingSubtitle);
         fileStream.pipe(res);
         fileStream.on('end', () => {
-            fs.unlinkSync(finalOutputPath);
+            try {
+                // 모든 가능한 자막 파일 삭제 시도
+                possibleFiles.forEach(file => {
+                    if (fs.existsSync(file)) {
+                        fs.unlinkSync(file);
+                    }
+                });
+            } catch (error) {
+                console.error('Error removing temp files:', error);
+            }
         });
 
     } catch (error) {
