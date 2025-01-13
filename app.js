@@ -167,6 +167,16 @@ app.get('/download', async (req, res) => {
             progress: true
         });
 
+        // 기존 파일 존재 시 삭제
+        if (fs.existsSync(outputPath)) {
+            try {
+                fs.unlinkSync(outputPath);
+                console.log('Removed existing file:', outputPath);
+            } catch (error) {
+                console.error('Error removing existing file:', error);
+            }
+        }
+
         // 진행 상태 처리
         let initialSize = null;
         let totalFragments = null;
