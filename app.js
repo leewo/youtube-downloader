@@ -254,20 +254,28 @@ app.get('/download', async (req, res) => {
         // 영상 정보 가져오기
         const videoInfo = await execYtDlp(url, ['--no-warnings']);
 
-        // 날짜 포함한 파일명 생성
+        // 날짜 포함한 파일명 생성 및 길이 제한
         const uploadDate = formatDate(videoInfo.upload_date);
         const safeTitle = sanitizeFilename(videoInfo.title);
         const fileName = `${uploadDate}_${safeTitle}.mp4`;
-        const outputPath = path.join(tempDir, fileName);
 
-        console.log('Output path:', outputPath);
+        // 임시 작업을 위한 짧은 파일명
+        const tempId = Date.now().toString(36);
+        const tempFileName = `${uploadDate}_temp_${tempId}.mp4`;
+        const tempOutputPath = path.join(tempDir, tempFileName);
+
+        // 최종 파일 경로 - 이것은 사용자에게 제공될 때만 사용
+        const finalOutputPath = path.join(tempDir, fileName);
+
+        console.log('Temp output path:', tempOutputPath);
+        console.log('Final filename:', fileName);
 
         // 다운로드 명령 실행
         const heightValue = parseInt(quality.replace('p', ''));
         const downloadProcess = require('child_process').spawn(getBinaryPath(), [
             url,
             '-f', `bestvideo[height=${heightValue}]+bestaudio/best[height<=${heightValue}]`,
-            '-o', outputPath,
+            '-o', tempOutputPath, // 짧은 임시 파일명 사용
             '--merge-output-format', 'mp4'
         ]);
 
@@ -323,7 +331,7 @@ app.get('/download', async (req, res) => {
             });
         });
 
-        if (fs.existsSync(outputPath)) {
+        if (fs.existsSync(tempOutputPath)) {
             if (clientId) {
                 sendProgress(clientId, {
                     type: 'video',
@@ -332,14 +340,16 @@ app.get('/download', async (req, res) => {
                 });
             }
 
+            // 파일 이름 설정 (원래 의도했던 이름 사용)
             res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName)}"`);
             res.setHeader('Content-Type', 'video/mp4');
 
-            const fileStream = fs.createReadStream(outputPath);
+            // 실제로는 짧은 임시 파일명으로 저장된 파일을 stream
+            const fileStream = fs.createReadStream(tempOutputPath);
             fileStream.pipe(res);
             fileStream.on('end', () => {
                 try {
-                    fs.unlinkSync(outputPath);
+                    fs.unlinkSync(tempOutputPath);
                 } catch (error) {
                     console.error('Error removing temp file:', error);
                 }
